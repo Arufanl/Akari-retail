@@ -1,0 +1,20 @@
+{
+  "name": "akari-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pilot WhatsApp Akari: satu pesan yang diizinkan menghasilkan satu balasan.",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google/genai": "2.30.0",
+    "baileys": "7.0.0-rc14",
+    "pino": "10.4.0"
+  }
+}

@@ -1,0 +1,25 @@
+node_modules/
+.npm-cache/
+
+# Environment files and runtime state contain secrets or personal data.
+.env
+.env.*
+!.env.example
+akari-state/
+runtime/
+auth/
+data/
+logs/
+backups/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,24 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node dependencies
+node_modules/
+
+# OS & Editor temporary files
+.DS_Store
+Thumbs.db
+.obsidian/workspace.json
+
+# Secrets & local runtime state (never commit)
+.env
+.env.*
+!.env.example
+*.dpapi
+*.sqlite
+*.sqlite-*
+*.db
+backups/
+session/
+auth/

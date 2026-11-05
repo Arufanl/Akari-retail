@@ -1,0 +1,284 @@
+﻿diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.js
+index 82b6ddf0..7be4530a 100644
+--- a/scripts/whatsapp-bridge/bridge.js
++++ b/scripts/whatsapp-bridge/bridge.js
+@@ -33,6 +33,7 @@ import qrcode from 'qrcode-terminal';
+ import { matchesAllowedSender, matchesAllowedUser, matchesInboundWhatsAppGroup, parseAllowedUsers } from './allowlist.js';
+ import { createOutboundIdTracker } from './outbound_ids.js';
+ import { classifyOwnerMessageGate } from './owner_message_gate.js';
++import { classifyUpsertType, createProcessedMessageLedger } from './inbound_message_gate.js';
+ import {
+   addMentions,
+   buildPollPayload,
+@@ -236,6 +237,14 @@ function emitDebugEvent(payload) {
+ 
+ mkdirSync(SESSION_DIR, { recursive: true });
+ 
++// Persist only SHA-256 fingerprints, never raw chat/message identifiers. This
++// prevents Baileys reconnect/history sync events from reaching the model twice,
++// including after the bridge process restarts.
++const processedInboundMessages = createProcessedMessageLedger({
++  filePath: path.join(SESSION_DIR, 'processed-inbound-ids.jsonl'),
++  onError: (err) => console.warn('[bridge] inbound dedup persistence failed:', err.message),
++});
++
+ // Build LID ΓåÆ phone reverse map from session files (lid-mapping-{phone}.json)
+ function buildLidMap() {
+   const map = {};
+@@ -540,9 +549,18 @@ async function startSocket() {
+   });
+ 
+   sock.ev.on('messages.upsert', async ({ messages, type }) => {
+-    // In self-chat mode, your own messages commonly arrive as 'append' rather
+-    // than 'notify'. Accept both and filter agent echo-backs below.
+-    if (type !== 'notify' && type !== 'append') return;
++    // Baileys uses `append` for history/old messages. Bot mode must never feed
++    // those back to the model. Self-chat still needs append because the user's
++    // own newly-sent messages commonly arrive under that type.
++    const typeDecision = classifyUpsertType({ type, mode: WHATSAPP_MODE });
++    if (typeDecision.action === 'drop') {
++      emitDebugEvent({
++        stage: 'ignored',
++        reason: typeDecision.reason,
++        type,
++      });
++      return;
++    }
+ 
+     const botIds = Array.from(new Set([
+       normalizeWhatsAppId(sock.user?.id),
+@@ -685,6 +703,21 @@ async function startSocket() {
+         }
+       }
+ 
++      const dedupDecision = processedInboundMessages.rememberIfNew({
++        chatId,
++        fromMe: !!msg.key.fromMe,
++        messageId: msg.key.id,
++      });
++      if (dedupDecision.action === 'drop') {
++        emitDebugEvent({
++          stage: 'ignored',
++          reason: 'duplicate_inbound_id',
++          chatId: redactWhatsAppId(chatId),
++          messageId: msg.key.id ? createHash('sha256').update(String(msg.key.id)).digest('hex').slice(0, 12) : '',
++        });
++        continue;
++      }
++
+       const messageContent = getMessageContent(msg);
+       if (messageContent.pollUpdateMessage) {
+         const pollUpdateMessage = messageContent.pollUpdateMessage;
+diff --git a/scripts/whatsapp-bridge/inbound_message_gate.js b/scripts/whatsapp-bridge/inbound_message_gate.js
+new file mode 100644
+index 00000000..acd4b5e3
+--- /dev/null
++++ b/scripts/whatsapp-bridge/inbound_message_gate.js
+@@ -0,0 +1,98 @@
++import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
++import { createHash } from 'crypto';
++
++const HASH_PATTERN = /^[a-f0-9]{64}$/;
++
++export function classifyUpsertType({ type, mode }) {
++  if (type !== 'notify' && type !== 'append') {
++    return { action: 'drop', reason: 'unsupported_upsert_type' };
++  }
++  if (type === 'append' && mode === 'bot') {
++    return { action: 'drop', reason: 'history_append' };
++  }
++  return { action: 'accept' };
++}
++
++export function inboundMessageFingerprint({ chatId, fromMe, messageId }) {
++  if (!chatId || !messageId) return '';
++  return createHash('sha256')
++    .update(`${String(chatId)}\0${fromMe ? '1' : '0'}\0${String(messageId)}`)
++    .digest('hex');
++}
++
++export function createProcessedMessageLedger({
++  filePath,
++  maxEntries = 4096,
++  compactEvery = 256,
++  onError = () => {},
++}) {
++  if (!filePath) throw new TypeError('filePath is required');
++  if (!Number.isInteger(maxEntries) || maxEntries < 1) {
++    throw new RangeError('maxEntries must be a positive integer');
++  }
++
++  const fingerprints = new Set();
++  let prunedSinceCompact = 0;
++
++  function report(error) {
++    try { onError(error); } catch {}
++  }
++
++  function trim() {
++    while (fingerprints.size > maxEntries) {
++      fingerprints.delete(fingerprints.values().next().value);
++      prunedSinceCompact += 1;
++    }
++  }
++
++  function compact() {
++    const temporaryPath = `${filePath}.tmp`;
++    try {
++      const body = fingerprints.size > 0
++        ? `${Array.from(fingerprints).join('\n')}\n`
++        : '';
++      writeFileSync(temporaryPath, body, { encoding: 'utf8', mode: 0o600 });
++      renameSync(temporaryPath, filePath);
++      prunedSinceCompact = 0;
++    } catch (error) {
++      report(error);
++    }
++  }
++
++  if (existsSync(filePath)) {
++    try {
++      for (const line of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
++        const fingerprint = line.trim().toLowerCase();
++        if (!HASH_PATTERN.test(fingerprint)) continue;
++        if (fingerprints.has(fingerprint)) fingerprints.delete(fingerprint);
++        fingerprints.add(fingerprint);
++      }
++      trim();
++    } catch (error) {
++      report(error);
++    }
++  }
++
++  return {
++    rememberIfNew(messageKey) {
++      const fingerprint = inboundMessageFingerprint(messageKey);
++      if (!fingerprint) return { action: 'accept', tracked: false };
++      if (fingerprints.has(fingerprint)) {
++        return { action: 'drop', reason: 'duplicate_inbound_id', tracked: true };
++      }
++
++      fingerprints.add(fingerprint);
++      try {
++        appendFileSync(filePath, `${fingerprint}\n`, { encoding: 'utf8', mode: 0o600 });
++      } catch (error) {
++        report(error);
++      }
++      trim();
++      if (prunedSinceCompact >= compactEvery) compact();
++      return { action: 'accept', tracked: true };
++    },
++    size() {
++      return fingerprints.size;
++    },
++  };
++}
+\ No newline at end of file
+diff --git a/scripts/whatsapp-bridge/inbound_message_gate.test.mjs b/scripts/whatsapp-bridge/inbound_message_gate.test.mjs
+new file mode 100644
+index 00000000..4d7bdff5
+--- /dev/null
++++ b/scripts/whatsapp-bridge/inbound_message_gate.test.mjs
+@@ -0,0 +1,101 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++
++import { classifyOwnerMessageGate } from './owner_message_gate.js';
++import { classifyUpsertType, createProcessedMessageLedger } from './inbound_message_gate.js';
++
++function withLedger(run) {
++  const directory = mkdtempSync(path.join(tmpdir(), 'hermes-inbound-ledger-'));
++  const filePath = path.join(directory, 'processed-inbound-ids.jsonl');
++  try {
++    return run({
++      filePath,
++      ledger: createProcessedMessageLedger({ filePath, maxEntries: 8, compactEvery: 2 }),
++    });
++  } finally {
++    rmSync(directory, { recursive: true, force: true });
++  }
++}
++
++const NEW_OWNER_MESSAGE = {
++  chatId: '628111111111@s.whatsapp.net',
++  fromMe: false,
++  messageId: 'NEW-MESSAGE-1',
++};
++
++test('new notify event is accepted and recorded without storing raw identifiers', () => {
++  withLedger(({ filePath, ledger }) => {
++    assert.deepEqual(classifyUpsertType({ type: 'notify', mode: 'bot' }), { action: 'accept' });
++    assert.deepEqual(ledger.rememberIfNew(NEW_OWNER_MESSAGE), { action: 'accept', tracked: true });
++
++    const persisted = readFileSync(filePath, 'utf8');
++    assert.match(persisted, /^[a-f0-9]{64}\n$/);
++    assert.equal(persisted.includes(NEW_OWNER_MESSAGE.chatId), false);
++    assert.equal(persisted.includes(NEW_OWNER_MESSAGE.messageId), false);
++  });
++});
++
++test('history append is dropped in separate-bot mode but remains valid for self-chat mode', () => {
++  assert.deepEqual(
++    classifyUpsertType({ type: 'append', mode: 'bot' }),
++    { action: 'drop', reason: 'history_append' },
++  );
++  assert.deepEqual(classifyUpsertType({ type: 'append', mode: 'self-chat' }), { action: 'accept' });
++});
++
++test('own message is rejected by the existing bot-mode owner gate', () => {
++  const event = { ...NEW_OWNER_MESSAGE, fromMe: true, messageId: 'OWN-MESSAGE-1' };
++  const decision = classifyOwnerMessageGate({
++    fromMe: event.fromMe,
++    fromOwnerEnabled: false,
++    recentlySent: { has: () => false },
++    allowlistMatches: () => true,
++    messageId: event.messageId,
++    chatId: event.chatId,
++  });
++  assert.deepEqual(decision, { action: 'drop_disabled' });
++});
++
++test('duplicate event in one process is dropped', () => {
++  withLedger(({ ledger }) => {
++    assert.equal(ledger.rememberIfNew(NEW_OWNER_MESSAGE).action, 'accept');
++    assert.deepEqual(
++      ledger.rememberIfNew(NEW_OWNER_MESSAGE),
++      { action: 'drop', reason: 'duplicate_inbound_id', tracked: true },
++    );
++  });
++});
++
++test('duplicate remains dropped after a simulated bridge restart', () => {
++  withLedger(({ filePath, ledger }) => {
++    assert.equal(ledger.rememberIfNew(NEW_OWNER_MESSAGE).action, 'accept');
++    const restartedLedger = createProcessedMessageLedger({ filePath, maxEntries: 8, compactEvery: 2 });
++    assert.deepEqual(
++      restartedLedger.rememberIfNew(NEW_OWNER_MESSAGE),
++      { action: 'drop', reason: 'duplicate_inbound_id', tracked: true },
++    );
++  });
++});
++
++test('ledger stays bounded and remains correct after compaction and restart', () => {
++  withLedger(({ filePath, ledger }) => {
++    for (let index = 0; index < 12; index += 1) {
++      assert.equal(ledger.rememberIfNew({ ...NEW_OWNER_MESSAGE, messageId: `message-${index}` }).action, 'accept');
++    }
++    assert.equal(ledger.size(), 8);
++
++    const restartedLedger = createProcessedMessageLedger({ filePath, maxEntries: 8, compactEvery: 2 });
++    assert.equal(restartedLedger.size(), 8);
++    assert.equal(
++      restartedLedger.rememberIfNew({ ...NEW_OWNER_MESSAGE, messageId: 'message-11' }).action,
++      'drop',
++    );
++    assert.equal(
++      restartedLedger.rememberIfNew({ ...NEW_OWNER_MESSAGE, messageId: 'message-0' }).action,
++      'accept',
++    );
++  });
++});
+\ No newline at end of file

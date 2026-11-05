@@ -1,0 +1,7 @@
+{
+  "geminiModel": "replace-with-a-free-tier-model-id",
+  "allowedWhatsAppJids": [
+    "replace-with-owner-number@s.whatsapp.net"
+  ],
+  "replyMaxOutputTokens": 300
+}
