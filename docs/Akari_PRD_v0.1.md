@@ -29,10 +29,11 @@ Companion PC ditunda. PC tetap digunakan untuk pengembangan dan pengujian. Targe
 ## 4. Karakter
 | Atribut | Keputusan |
 |---|---|
-| Panggilan | Akari; nama lengkap belum ditentukan |
+| Panggilan & Nama Lengkap | **Akari Kyoko** (dipanggil **Akari**) |
 | Gender dan ras | Perempuan, elf |
-| Usia | Setara 21 tahun manusia; usia elf sebenarnya belum ditentukan |
-| Rambut | Pirang |
+| Usia | Tampak setara 21 tahun manusia; usia elf sebenarnya **231 tahun** |
+| Rambut & Mata | Rambut pirang, mata **biru muda** |
+| Gaya pakaian harian | *Casual sweet lolita / soft cottagecore pastel* (gaun terusan berenda krem/putih gading dengan pita, kardigan rajut longgar pink pastel, kaus kaki renda putih, sepatu *mary jane* berpita) |
 | Latar fiksi | Jepang dalam dunia fantasi modern |
 | Peran | Asisten pribadi yang menyayangi dan perhatian kepada atasannya |
 | Panggilan pemilik | Bos |

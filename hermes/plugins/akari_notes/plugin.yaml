@@ -1,0 +1,7 @@
+name: akari_notes
+version: 1.0.0
+description: "Penyimpanan catatan terstruktur Akari (ide, link, catatan umum, tugas) dan kontrol jeda sapaan."
+author: Akari
+kind: standalone
+provides_tools:
+  - akari_notes
