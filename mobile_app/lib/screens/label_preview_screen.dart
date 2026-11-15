@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:gal/gal.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import '../theme/miku_theme.dart';
 import '../services/api_service.dart';
@@ -59,9 +59,8 @@ class _LabelPreviewScreenState extends State<LabelPreviewScreen> {
     setState(() => _isSavingGallery = true);
 
     try {
-      final result = await ImageGallerySaver.saveImage(
+      await Gal.putImageBytes(
         _imageBytes!,
-        quality: 100,
         name: "akari_label_${widget.plu}",
       );
 
@@ -72,7 +71,7 @@ class _LabelPreviewScreenState extends State<LabelPreviewScreen> {
       );
     } catch (e) {
       Fluttertoast.showToast(
-        msg: "Gagal menyimpan ke galeri: $e",
+        msg: "Gagal menyimpan: $e",
         backgroundColor: Colors.redAccent,
       );
     } finally {

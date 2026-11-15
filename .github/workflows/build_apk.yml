@@ -29,8 +29,13 @@ jobs:
         working-directory: mobile_app
         run: |
           flutter create --org com.akari --platforms android .
+          # Ensure minSdk is 21 and compileSdk is 34
           sed -i 's/minSdkVersion .*/minSdkVersion 21/g' android/app/build.gradle || true
           sed -i 's/minSdk = .*/minSdk = 21/g' android/app/build.gradle || true
+          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/g' android/app/build.gradle || true
+          sed -i 's/compileSdk = .*/compileSdk = 34/g' android/app/build.gradle || true
+          # Add camera & storage permissions
+          sed -i '/<application/i <uses-permission android:name="android.permission.CAMERA" />\n<uses-permission android:name="android.permission.INTERNET" />\n<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml || true
 
       - name: Get Dependencies
         working-directory: mobile_app
