@@ -19,6 +19,9 @@ Thumbs.db
 *.sqlite
 *.sqlite-*
 *.db
+*.xls
+*.xlsx
+generated_labels/
 backups/
 session/
 auth/
