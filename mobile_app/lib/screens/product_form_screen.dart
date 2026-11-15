@@ -75,7 +75,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     setState(() => _isSaving = true);
 
     try {
-      final res = await ApiService.saveProduct(
+      await ApiService.saveProduct(
         plu: plu,
         barcode: barcode,
         name: name.isNotEmpty ? name : null,
@@ -206,7 +206,7 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Row(
-                    mainAxisAlignment: MainAxisAlignment.between,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Nomor PLU Toko (8 Digit)', style: TextStyle(fontWeight: FontWeight.bold, color: MikuTheme.darkTeal)),
                       Text('Wajib Diisi', style: TextStyle(fontSize: 10, color: MikuTheme.pink, fontWeight: FontWeight.bold)),
