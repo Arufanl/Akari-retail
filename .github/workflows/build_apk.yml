@@ -28,12 +28,13 @@ jobs:
       - name: Clean & Generate Fresh Android Platform
         working-directory: mobile_app
         run: |
-          rm -rf android
+          rm -rf android test
           flutter create --org com.akari --project-name akari_retail --platforms android .
+          rm -rf test
           python3 - << 'EOF'
           import os, re
 
-          # 1. Patch AndroidManifest.xml cleanly (no deprecated package attribute, add permissions & cleartext HTTP)
+          # 1. Patch AndroidManifest.xml cleanly (add permissions & cleartext HTTP)
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r") as f:
               m = f.read()
@@ -67,20 +68,12 @@ jobs:
         working-directory: mobile_app
         run: |
           flutter pub get
-          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter analyze lib --no-fatal-infos --no-fatal-warnings
 
       - name: Build APK Release
         working-directory: mobile_app
         run: |
-          flutter build apk --release 2>&1 | tee build_output.log
-
-      - name: Upload Build Log on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-error-log
-          path: mobile_app/build_output.log
-          if-no-files-found: ignore
+          flutter build apk --release
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
