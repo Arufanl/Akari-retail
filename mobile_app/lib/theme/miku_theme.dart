@@ -18,7 +18,6 @@ class MikuTheme {
         seedColor: teal,
         primary: teal,
         secondary: pink,
-        background: softBg,
         surface: cardBg,
       ),
       scaffoldBackgroundColor: softBg,

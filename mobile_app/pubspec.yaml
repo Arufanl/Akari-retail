@@ -9,12 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  mobile_scanner: ^5.2.3
+  mobile_scanner: ^6.0.2
   http: ^1.2.2
   shared_preferences: ^2.3.2
   gal: ^2.3.1
-  cached_network_image: ^3.4.1
-  fluttertoast: ^8.2.8
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

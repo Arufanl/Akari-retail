@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:fluttertoast/fluttertoast.dart';
 import '../theme/miku_theme.dart';
 import '../services/api_service.dart';
 
@@ -38,17 +37,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final key = _keyCtrl.text.trim();
 
     if (url.isEmpty || key.isEmpty) {
-      Fluttertoast.showToast(msg: "Alamat server & API Key tidak boleh kosong!");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Alamat server & API Key tidak boleh kosong!')),
+      );
       return;
     }
 
     await ApiService.saveSettings(url, key);
-    Fluttertoast.showToast(
-      msg: "Pengaturan berhasil disimpan!",
-      backgroundColor: MikuTheme.teal,
-      textColor: Colors.white,
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Pengaturan berhasil disimpan!'),
+        backgroundColor: MikuTheme.teal,
+      ),
     );
-    if (mounted) Navigator.pop(context);
+    Navigator.pop(context);
   }
 
   void _scanSetupQr() {
@@ -70,9 +73,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _keyCtrl.text = data['api_key'];
                     });
                     Navigator.pop(ctx);
-                    Fluttertoast.showToast(
-                      msg: "Pengaturan QR berhasil dibaca!",
-                      backgroundColor: MikuTheme.teal,
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Pengaturan QR berhasil dibaca!'),
+                        backgroundColor: MikuTheme.teal,
+                      ),
                     );
                   }
                 } catch (e) {

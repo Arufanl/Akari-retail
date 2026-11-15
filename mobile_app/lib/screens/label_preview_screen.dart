@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
-import 'package:fluttertoast/fluttertoast.dart';
 import '../theme/miku_theme.dart';
 import '../services/api_service.dart';
 
@@ -64,15 +63,20 @@ class _LabelPreviewScreenState extends State<LabelPreviewScreen> {
         name: "akari_label_${widget.plu}",
       );
 
-      Fluttertoast.showToast(
-        msg: "Berhasil disimpan ke Galeri HP!",
-        backgroundColor: MikuTheme.teal,
-        textColor: Colors.white,
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Berhasil disimpan ke Galeri HP!'),
+          backgroundColor: MikuTheme.teal,
+        ),
       );
     } catch (e) {
-      Fluttertoast.showToast(
-        msg: "Gagal menyimpan: $e",
-        backgroundColor: Colors.redAccent,
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyimpan: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSavingGallery = false);
