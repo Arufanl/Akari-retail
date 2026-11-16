@@ -24,6 +24,23 @@ class ApiService {
     await prefs.setString('api_key', apiKey.trim());
   }
 
+  static Future<Map<String, dynamic>> testConnection({String? overrideUrl, String? overrideKey}) async {
+    final baseUrl = (overrideUrl ?? await getServerUrl()).trim().replaceAll(RegExp(r'/+$'), '');
+    final apiKey = (overrideKey ?? await getApiKey()).trim();
+    final uri = Uri.parse('$baseUrl/api/config/info');
+
+    final response = await http.get(
+      uri,
+      headers: {'X-API-Key': apiKey},
+    ).timeout(const Duration(seconds: 6));
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    }
+  }
+
   static Future<Map<String, dynamic>> lookupProduct(String code) async {
     final baseUrl = await getServerUrl();
     final apiKey = await getApiKey();
@@ -43,12 +60,12 @@ class ApiService {
 
   static Future<List<ProductItem>> searchProducts(String query, {int limit = 20}) async {
     final baseUrl = await getServerUrl();
-    final apiKey = await getApiKey();
+    final key = await getApiKey();
     final uri = Uri.parse('$baseUrl/api/product/search?q=${Uri.encodeComponent(query)}&limit=$limit');
 
     final response = await http.get(
       uri,
-      headers: {'X-API-Key': apiKey},
+      headers: {'X-API-Key': key},
     ).timeout(const Duration(seconds: 8));
 
     if (response.statusCode == 200) {

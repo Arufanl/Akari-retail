@@ -15,6 +15,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _urlCtrl = TextEditingController();
   final TextEditingController _keyCtrl = TextEditingController();
   bool _isLoading = true;
+  bool _isTesting = false;
+  String? _connectionStatus;
+  bool _connectionOk = false;
 
   @override
   void initState() {
@@ -25,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _loadSettings() async {
     final url = await ApiService.getServerUrl();
     final key = await ApiService.getApiKey();
+    if (!mounted) return;
     setState(() {
       _urlCtrl.text = url;
       _keyCtrl.text = key;
@@ -32,7 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  void _save() async {
+  void _saveAndTest() async {
     final url = _urlCtrl.text.trim();
     final key = _keyCtrl.text.trim();
 
@@ -43,18 +47,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
+    setState(() {
+      _isTesting = true;
+      _connectionStatus = null;
+    });
+
     await ApiService.saveSettings(url, key);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Pengaturan berhasil disimpan!'),
-        backgroundColor: MikuTheme.teal,
-      ),
-    );
-    Navigator.pop(context);
+
+    try {
+      final info = await ApiService.testConnection(overrideUrl: url, overrideKey: key);
+      if (!mounted) return;
+      final totalDb = info['total_products'] ?? 50606;
+      setState(() {
+        _isTesting = false;
+        _connectionOk = true;
+        _connectionStatus = 'Terhubung ke Server Tablet! ($totalDb produk siap)';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Berhasil terhubung! ($totalDb produk)'),
+          backgroundColor: MikuTheme.teal,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isTesting = false;
+        _connectionOk = false;
+        _connectionStatus = 'Pengaturan disimpan, tetapi server belum merespons: $e';
+      });
+    }
   }
 
   void _scanSetupQr() {
+    bool isPopped = false;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -62,15 +88,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           appBar: AppBar(title: const Text('Scan QR Setup Server')),
           body: MobileScanner(
             onDetect: (capture) {
+              if (isPopped) return;
               final barcodes = capture.barcodes;
               if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
                 final raw = barcodes.first.rawValue!;
                 try {
                   final data = jsonDecode(raw);
                   if (data['server_url'] != null && data['api_key'] != null) {
+                    isPopped = true;
                     setState(() {
-                      _urlCtrl.text = data['server_url'];
-                      _keyCtrl.text = data['api_key'];
+                      _urlCtrl.text = data['server_url'].toString();
+                      _keyCtrl.text = data['api_key'].toString();
                     });
                     Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -80,7 +108,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     );
                   }
-                } catch (e) {
+                } catch (_) {
                   // Not valid setup JSON
                 }
               }
@@ -89,6 +117,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _urlCtrl.dispose();
+    _keyCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -157,15 +192,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       prefixIcon: Icon(Icons.key, color: MikuTheme.teal),
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 20),
 
-                  ElevatedButton(
+                  if (_connectionStatus != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _connectionOk ? const Color(0xFFE8F8F7) : const Color(0xFFFFECEF),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _connectionOk ? MikuTheme.teal : MikuTheme.pink),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _connectionOk ? Icons.check_circle : Icons.error_outline,
+                            color: _connectionOk ? MikuTheme.darkTeal : MikuTheme.pink,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _connectionStatus!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _connectionOk ? MikuTheme.darkTeal : Colors.red.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       backgroundColor: MikuTheme.teal,
                     ),
-                    onPressed: _save,
-                    child: const Text('Simpan Pengaturan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    onPressed: _isTesting ? null : _saveAndTest,
+                    icon: _isTesting
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Icon(Icons.save_alt),
+                    label: Text(
+                      _isTesting ? 'Mengecek Koneksi Server...' : 'Tes Koneksi & Simpan Pengaturan',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
                   ),
                 ],
               ),

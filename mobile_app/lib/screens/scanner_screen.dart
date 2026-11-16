@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../theme/miku_theme.dart';
@@ -13,15 +14,105 @@ class ScannerScreen extends StatefulWidget {
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
-    facing: CameraFacing.back,
-    torchEnabled: false,
-  );
-
+class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserver {
+  late MobileScannerController _controller;
+  int _cameraKeyId = 0;
   bool _isProcessing = false;
   bool _isTorchOn = false;
+  bool _isStartingCamera = false;
+  bool _isRoutePaused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initController();
+  }
+
+  void _initController() {
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+      autoStart: true,
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Do not interfere if controller hasn't finished initial start or permission prompt
+    if (!_controller.value.hasCameraPermission || !_controller.value.isInitialized) {
+      return;
+    }
+    if (_isRoutePaused || _isProcessing) {
+      return;
+    }
+    switch (state) {
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        unawaited(_safeStopCamera());
+      case AppLifecycleState.resumed:
+        unawaited(_safeStartCamera());
+      case AppLifecycleState.inactive:
+        return;
+    }
+  }
+
+  Future<void> _safeStartCamera() async {
+    if (_isStartingCamera || _controller.value.isRunning) return;
+    _isStartingCamera = true;
+    try {
+      await _controller.start();
+    } catch (_) {
+      // Ignore if already starting/started
+    } finally {
+      _isStartingCamera = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _safeStopCamera() async {
+    if (!_controller.value.isRunning) return;
+    try {
+      await _controller.stop();
+    } catch (_) {}
+  }
+
+  Future<void> _restartCameraCompletely() async {
+    if (_isStartingCamera) return;
+    setState(() => _isStartingCamera = true);
+    try {
+      await _controller.stop();
+    } catch (_) {}
+    try {
+      await _controller.dispose();
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+
+    setState(() {
+      _cameraKeyId++;
+      _initController();
+      _isStartingCamera = false;
+    });
+  }
+
+  Future<void> _navigateAndPauseCamera(Widget page) async {
+    _isRoutePaused = true;
+    await _safeStopCamera();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => page),
+    );
+    _isRoutePaused = false;
+    if (mounted) {
+      setState(() => _isProcessing = false);
+      await _safeStartCamera();
+    }
+  }
 
   void _onDetect(BarcodeCapture capture) async {
     if (_isProcessing) return;
@@ -38,17 +129,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
       final res = await ApiService.lookupProduct(code);
       if (!mounted) return;
 
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ProductFormScreen(
-            scannedCode: code,
-            lookupResult: res,
-          ),
+      await _navigateAndPauseCamera(
+        ProductFormScreen(
+          scannedCode: code,
+          lookupResult: res,
         ),
-      ).then((_) {
-        if (mounted) setState(() => _isProcessing = false);
-      });
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,17 +192,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
     try {
       final res = await ApiService.lookupProduct(code);
       if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ProductFormScreen(
-            scannedCode: code,
-            lookupResult: res,
-          ),
+      await _navigateAndPauseCamera(
+        ProductFormScreen(
+          scannedCode: code,
+          lookupResult: res,
         ),
-      ).then((_) {
-        if (mounted) setState(() => _isProcessing = false);
-      });
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -128,8 +209,69 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     super.dispose();
+  }
+
+  Widget _buildCameraError(BuildContext context, MobileScannerException error) {
+    String errorTitle = 'Kamera Belum Terbuka';
+    String errorDesc = error.errorDetails?.message ?? 'Pastikan izin kamera sudah diaktifkan untuk Akari Retail.';
+
+    if (error.errorCode == MobileScannerErrorCode.permissionDenied) {
+      errorTitle = 'Izin Kamera Ditolak';
+      errorDesc = 'Buka Pengaturan HP > Aplikasi > Akari Retail > Izin > Izinkan Kamera.';
+    } else if (error.errorCode == MobileScannerErrorCode.controllerAlreadyInitialized) {
+      errorTitle = 'Kamera Sedang Dimuat Ulang';
+    }
+
+    return Container(
+      color: const Color(0xFF16292B),
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.camera_enhance_rounded, color: MikuTheme.teal, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              errorTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Kode: ${error.errorCode.name}\n$errorDesc',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: MikuTheme.teal,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              onPressed: _restartCameraCompletely,
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Buka Ulang Kamera'),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () async {
+                try {
+                  await _controller.switchCamera();
+                } catch (_) {
+                  await _restartCameraCompletely();
+                }
+              },
+              icon: const Icon(Icons.cameraswitch, color: MikuTheme.pink, size: 16),
+              label: const Text('Ganti Lensa Kamera', style: TextStyle(color: MikuTheme.pink, fontSize: 12)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -162,22 +304,32 @@ class _ScannerScreenState extends State<ScannerScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Senter / Flash',
             icon: Icon(
               _isTorchOn ? Icons.flash_on : Icons.flash_off,
               color: _isTorchOn ? Colors.amber : Colors.grey,
             ),
-            onPressed: () {
-              _controller.toggleTorch();
-              setState(() => _isTorchOn = !_isTorchOn);
+            onPressed: () async {
+              try {
+                await _controller.toggleTorch();
+                setState(() => _isTorchOn = !_isTorchOn);
+              } catch (_) {}
             },
           ),
           IconButton(
-            icon: const Icon(Icons.search, color: MikuTheme.darkTeal),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+            tooltip: 'Muat Ulang Kamera',
+            icon: const Icon(Icons.refresh, color: MikuTheme.teal),
+            onPressed: _restartCameraCompletely,
           ),
           IconButton(
+            tooltip: 'Cari Produk',
+            icon: const Icon(Icons.search, color: MikuTheme.darkTeal),
+            onPressed: () => _navigateAndPauseCamera(const SearchScreen()),
+          ),
+          IconButton(
+            tooltip: 'Pengaturan Server',
             icon: const Icon(Icons.settings, color: Colors.grey),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            onPressed: () => _navigateAndPauseCamera(const SettingsScreen()),
           ),
         ],
       ),
@@ -224,18 +376,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 alignment: Alignment.center,
                 children: [
                   MobileScanner(
+                    key: ValueKey(_cameraKeyId),
                     controller: _controller,
+                    tapToFocus: true,
                     onDetect: _onDetect,
+                    errorBuilder: (context, error) => _buildCameraError(context, error),
                   ),
 
                   // Framing Target Box
-                  Container(
-                    width: 240,
-                    height: 140,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: MikuTheme.teal.withOpacity(0.7), width: 2),
-                      borderRadius: BorderRadius.circular(16),
-                      color: Colors.white.withOpacity(0.15),
+                  IgnorePointer(
+                    child: Container(
+                      width: 240,
+                      height: 140,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: MikuTheme.teal.withOpacity(0.7), width: 2),
+                        borderRadius: BorderRadius.circular(16),
+                        color: Colors.white.withOpacity(0.12),
+                      ),
                     ),
                   ),
 
@@ -297,7 +454,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                           side: const BorderSide(color: MikuTheme.borderTeal),
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchScreen())),
+                        onPressed: () => _navigateAndPauseCamera(const SearchScreen()),
                         icon: const Icon(Icons.search, size: 18),
                         label: const Text('Cari Nama'),
                       ),

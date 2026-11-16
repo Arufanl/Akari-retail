@@ -58,6 +58,10 @@ class _LabelPreviewScreenState extends State<LabelPreviewScreen> {
     setState(() => _isSavingGallery = true);
 
     try {
+      final hasAccess = await Gal.hasAccess();
+      if (!hasAccess) {
+        await Gal.requestAccess();
+      }
       await Gal.putImageBytes(
         _imageBytes!,
         name: "akari_label_${widget.plu}",
